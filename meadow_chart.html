@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Meadow — Chart Version</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 30px auto; color:#222; }
+  canvas { width: 100%; height: 300px; display: block; border-radius: 8px; background:#2b2b2b; }
+  #readout, #colInfo { font-family: monospace; font-size: 12px; color: #555; margin-top: 6px; }
+  #colInfo { color: #a15c00; }
+  #error { color: #c0392b; font-weight: bold; white-space: pre-wrap; }
+  button { padding: 6px 14px; margin-right: 8px; cursor: pointer; }
+  input[type=range] { width: 100%; margin-top: 10px; }
+  .upload-box { border: 2px dashed #aaa; border-radius: 8px; padding: 16px; margin-bottom: 16px; text-align:center; }
+</style>
+</head>
+<body>
+
+<h2>Smart Meadow — Chart Version</h2>
+
+<div class="upload-box">
+  <p><strong>Step 1:</strong> choose your CSV export from R (needs columns for rain, temperature, humidity, and soil moisture — column names are auto-detected).</p>
+  <input type="file" id="fileInput" accept=".csv">
+  <div id="colInfo"></div>
+  <div id="error"></div>
+</div>
+
+<canvas id="cv" width="640" height="300"></canvas>
+<div id="readout">Upload a CSV to begin.</div>
+<input type="range" id="scrub" min="0" max="0" value="0" disabled>
+<div style="margin-top:10px">
+  <button id="play-btn" disabled>Play</button>
+  <button id="reset-btn" disabled>Reset</button>
+</div>
+<p style="font-size:12px;color:#888;margin-top:14px">White line = soil moisture over time. Blue streaks = rain. Background color = temperature. Haze = humidity. Same musical mapping as the scene version, shown as data instead of art.</p>
+
+<script>
+// ================= CSV LOADING with auto column detection =================
+var fileInput = document.getElementById('fileInput');
+var colInfo = document.getElementById('colInfo');
+var errorBox = document.getElementById('error');
+
+var DATA = { rain: [], temp: [], rh: [], vwc: [], ts: [] };
+var N = 0;
+var RAIN_MAX=1, TEMP_MIN=0, TEMP_MAX=1, RH_MIN=0, RH_MAX=1, VWC_MIN=0, VWC_MAX=1;
+
+function detectColumns(headers){
+  var lower = headers.map(function(h){ return h.toLowerCase(); });
+  function find(keywords){
+    for(var i=0;i<lower.length;i++){
+      for(var k=0;k<keywords.length;k++){
+        if(lower[i].indexOf(keywords[k])!==-1) return headers[i];
+      }
+    }
+    return null;
+  }
+  return {
+    rain: find(['rain','precip']),
+    temp: find(['temp','airtf','air_t']),
+    rh:   find(['rh','humid']),
+    vwc:  find(['vwc','moist','soil_water']),
+    time: find(['hour_bucket','timestamp','time','date'])
+  };
+}
+
+fileInput.addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if(!file) return;
+  errorBox.textContent=''; colInfo.textContent='Parsing…';
+
+  Papa.parse(file, {
+    header: true,
+    dynamicTyping: true,
+    skipEmptyLines: true,
+    complete: function(results){
+      var headers = results.meta.fields || [];
+      var cols = detectColumns(headers);
+      var missing = [];
+      if(!cols.rain) missing.push('rain');
+      if(!cols.temp) missing.push('temperature');
+      if(!cols.rh) missing.push('humidity');
+      if(!cols.vwc) missing.push('soil moisture');
+
+      if(missing.length){
+        errorBox.textContent = "Couldn't find columns for: " + missing.join(', ') +
+          ".\nColumns found in your file: " + headers.join(', ') +
+          "\nRename your columns to include a recognizable word (e.g. 'rain', 'temp', 'rh' or 'humidity', 'vwc' or 'moisture') and re-upload.";
+        colInfo.textContent=''; return;
+      }
+
+      var rows = results.data.filter(function(r){
+        return r[cols.rain]!=null && r[cols.temp]!=null && r[cols.rh]!=null && r[cols.vwc]!=null;
+      });
+
+      DATA.rain = rows.map(function(r){ return r[cols.rain]; });
+      DATA.temp = rows.map(function(r){ return r[cols.temp]; });
+      DATA.rh   = rows.map(function(r){ return r[cols.rh]; });
+      DATA.vwc  = rows.map(function(r){ return r[cols.vwc]; });
+      DATA.ts   = rows.map(function(r){ return cols.time ? r[cols.time] : ''; });
+      N = DATA.rain.length;
+
+      if(N < 2){
+        errorBox.textContent = "Found columns, but fewer than 2 usable rows. Check your CSV has data below the header row.";
+        colInfo.textContent=''; return;
+      }
+
+      RAIN_MAX = Math.max.apply(null, DATA.rain) || 1;
+      TEMP_MIN = Math.min.apply(null, DATA.temp); TEMP_MAX = Math.max.apply(null, DATA.temp);
+      RH_MIN   = Math.min.apply(null, DATA.rh);   RH_MAX   = Math.max.apply(null, DATA.rh);
+      VWC_MIN  = Math.min.apply(null, DATA.vwc);  VWC_MAX  = Math.max.apply(null, DATA.vwc);
+
+      colInfo.textContent = 'Using columns — rain: "'+cols.rain+'", temp: "'+cols.temp+'", humidity: "'+cols.rh+'", moisture: "'+cols.vwc+'"  ('+N+' rows loaded)';
+
+      scrub.max = N-1; scrub.value=0; scrub.disabled=false;
+      playBtn.disabled=false; document.getElementById('reset-btn').disabled=false;
+      idx=0; draw(0);
+      readout.textContent = 'Ready. Press Play.';
+    },
+    error: function(err){
+      errorBox.textContent = 'Error reading file: ' + err.message;
+    }
+  });
+});
+
+// ================= MUSICAL AUDIO ENGINE (same as scene version) =================
+var BASS_SCALE  = [65.41, 73.42, 82.41, 98.00, 110.00];
+var MID_SCALE   = [130.81,146.83,164.81,196.00,220.00,261.63,293.66,329.63,392.00,440.00];
+var HIGH_SCALE  = [523.25,587.33,659.25,783.99,880.00,1046.50];
+function clamp01(v){ return Math.max(0,Math.min(1,v)); }
+function norm(v,lo,hi){ if(hi===lo) return 0.5; return clamp01((v-lo)/(hi-lo)); }
+function quantize(t, scale){ return scale[Math.round(clamp01(t)*(scale.length-1))]; }
+
+var audioCtx=null, masterBus, reverbSend, convolver;
+var droneOsc1, droneOsc2, droneGain, droneFilter, audioReady=false;
+
+function makeImpulse(ctx, dur, decay){
+  var rate=ctx.sampleRate, len=Math.floor(rate*dur);
+  var imp=ctx.createBuffer(2,len,rate);
+  for(var ch=0;ch<2;ch++){ var d=imp.getChannelData(ch); for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay); } }
+  return imp;
+}
+function ensureAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterBus=audioCtx.createGain(); masterBus.gain.value=1; masterBus.connect(audioCtx.destination);
+  convolver=audioCtx.createConvolver(); convolver.buffer=makeImpulse(audioCtx,2.2,2.5);
+  reverbSend=audioCtx.createGain(); reverbSend.gain.value=0.4;
+  masterBus.connect(reverbSend); reverbSend.connect(convolver); convolver.connect(audioCtx.destination);
+  droneFilter=audioCtx.createBiquadFilter(); droneFilter.type='lowpass'; droneFilter.frequency.value=800;
+  droneGain=audioCtx.createGain(); droneGain.gain.value=0.0001;
+  droneOsc1=audioCtx.createOscillator(); droneOsc1.type='triangle'; droneOsc1.frequency.value=BASS_SCALE[0];
+  droneOsc2=audioCtx.createOscillator(); droneOsc2.type='sine'; droneOsc2.frequency.value=BASS_SCALE[0]*1.004;
+  droneOsc1.connect(droneFilter); droneOsc2.connect(droneFilter);
+  droneFilter.connect(droneGain); droneGain.connect(masterBus);
+  droneOsc1.start(); droneOsc2.start();
+  audioReady=true;
+}
+function updateDrone(vwcN, rhN, dur){
+  var t=audioCtx.currentTime; var freq=quantize(vwcN, BASS_SCALE);
+  droneOsc1.frequency.linearRampToValueAtTime(freq, t+dur);
+  droneOsc2.frequency.linearRampToValueAtTime(freq*1.004, t+dur);
+  droneFilter.frequency.linearRampToValueAtTime(300+rhN*1400, t+dur);
+}
+function playMelodyPluck(tempN, rhN){
+  var t=audioCtx.currentTime; var freq=quantize(tempN, MID_SCALE);
+  var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type='sine'; o.frequency.setValueAtTime(freq,t);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.05+rhN*0.03,t+0.03); g.gain.exponentialRampToValueAtTime(0.0001,t+0.65);
+  o.connect(g).connect(masterBus); o.start(t); o.stop(t+0.7);
+  var o2=audioCtx.createOscillator(), g2=audioCtx.createGain();
+  o2.type='sine'; o2.frequency.setValueAtTime(freq*2,t);
+  g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.015,t+0.03); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+  o2.connect(g2).connect(masterBus); o2.start(t); o2.stop(t+0.45);
+}
+function playRain(rainN){
+  var t=audioCtx.currentTime;
+  var bufSize=audioCtx.sampleRate*0.22;
+  var buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  var d=buf.getChannelData(0);
+  for(var k=0;k<bufSize;k++){ d[k]=(Math.random()*2-1)*(1-k/bufSize); }
+  var src=audioCtx.createBufferSource(); src.buffer=buf;
+  var bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(900+rainN*1500,t);
+  var gr=audioCtx.createGain(); gr.gain.setValueAtTime(Math.min(0.18,0.04+rainN*0.18),t);
+  src.connect(bp).connect(gr).connect(masterBus); src.start(t);
+
+  var dropCount=1+Math.round(rainN*3);
+  for(var i=0;i<dropCount;i++){
+    var dt=t+i*0.045+Math.random()*0.02;
+    var freq=HIGH_SCALE[Math.floor(Math.random()*HIGH_SCALE.length)];
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(freq,dt);
+    g.gain.setValueAtTime(0.0001,dt); g.gain.linearRampToValueAtTime(0.035+rainN*0.03,dt+0.008); g.gain.exponentialRampToValueAtTime(0.0001,dt+0.5);
+    o.connect(g).connect(masterBus); o.start(dt); o.stop(dt+0.55);
+  }
+}
+function sonify(i, tickDur){
+  if(!audioReady) return;
+  var tempN=norm(DATA.temp[i],TEMP_MIN,TEMP_MAX), rhN=norm(DATA.rh[i],RH_MIN,RH_MAX), vwcN=norm(DATA.vwc[i],VWC_MIN,VWC_MAX), rainN=norm(DATA.rain[i],0,RAIN_MAX);
+  updateDrone(vwcN, rhN, tickDur*0.9);
+  playMelodyPluck(tempN, rhN);
+  if(rainN>0.02) playRain(rainN);
+}
+
+// ================= CHART VISUAL =================
+var canvas=document.getElementById('cv'), ctx=canvas.getContext('2d');
+var cw=canvas.width, ch=canvas.height;
+var scrub=document.getElementById('scrub'), readout=document.getElementById('readout'), playBtn=document.getElementById('play-btn');
+var idx=0, intervalId=null, playing=false;
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function bgColor(tempN){
+  var cool=[46,90,140], warm=[214,133,32];
+  return 'rgb('+Math.round(lerp(cool[0],warm[0],tempN))+','+Math.round(lerp(cool[1],warm[1],tempN))+','+Math.round(lerp(cool[2],warm[2],tempN))+')';
+}
+function draw(i){
+  if(N===0) return;
+  var tempN=norm(DATA.temp[i],TEMP_MIN,TEMP_MAX), rhN=norm(DATA.rh[i],RH_MIN,RH_MAX), rainN=norm(DATA.rain[i],0,RAIN_MAX);
+  ctx.fillStyle=bgColor(tempN); ctx.fillRect(0,0,cw,ch);
+
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5; ctx.beginPath();
+  for(var k=0;k<=i;k++){
+    var x=(k/(N-1))*cw; var y=ch-20-norm(DATA.vwc[k],VWC_MIN,VWC_MAX)*(ch-60);
+    if(k===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle='rgba(255,255,255,'+(rhN*0.28)+')'; ctx.fillRect(0,0,cw,ch);
+
+  if(rainN>0.02){
+    ctx.strokeStyle='rgba(180,220,255,0.85)'; ctx.lineWidth=1;
+    var n=Math.round(4+rainN*22);
+    for(var s=0;s<n;s++){ var rx=Math.random()*cw, ry=Math.random()*ch*0.7; ctx.beginPath(); ctx.moveTo(rx,ry); ctx.lineTo(rx-3,ry+12+rainN*10); ctx.stroke(); }
+  }
+
+  var px=(i/(N-1))*cw;
+  ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,ch); ctx.stroke();
+
+  var dayNum = Math.floor(i/24)+1;
+  readout.textContent = (DATA.ts[i] || ('hour '+i))+'  (day '+dayNum+')  |  rain '+DATA.rain[i].toFixed(2)+'  temp '+DATA.temp[i].toFixed(1)+'  RH '+DATA.rh[i].toFixed(1)+'  VWC '+DATA.vwc[i].toFixed(3);
+}
+
+var TICK_MS=180;
+function tick(){
+  if(N===0) return;
+  idx=(idx+1)%N; scrub.value=idx;
+  draw(idx);
+  sonify(idx, TICK_MS/1000);
+}
+playBtn.addEventListener('click', function(){
+  ensureAudio();
+  playing=!playing; playBtn.textContent=playing?'Pause':'Play';
+  if(playing){
+    droneGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    droneGain.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime+0.4);
+    intervalId=setInterval(tick,TICK_MS);
+  } else {
+    clearInterval(intervalId);
+    if(droneGain){ droneGain.gain.cancelScheduledValues(audioCtx.currentTime); droneGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime+0.4); }
+  }
+});
+document.getElementById('reset-btn').addEventListener('click', function(){
+  playing=false; clearInterval(intervalId); playBtn.textContent='Play';
+  if(droneGain && audioCtx){ droneGain.gain.cancelScheduledValues(audioCtx.currentTime); droneGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime+0.3); }
+  idx=0; scrub.value=0; draw(0);
+});
+scrub.addEventListener('input', function(){
+  playing=false; clearInterval(intervalId); playBtn.textContent='Play';
+  if(droneGain && audioCtx){ droneGain.gain.cancelScheduledValues(audioCtx.currentTime); droneGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime+0.3); }
+  idx=+scrub.value; draw(idx);
+});
+</script>
+</body>
+</html>
