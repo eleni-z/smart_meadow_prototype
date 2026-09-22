@@ -65,10 +65,6 @@ var RH_MIN   = Math.min.apply(null, DATA.rh),   RH_MAX   = Math.max.apply(null, 
 var VWC_MIN  = Math.min.apply(null, DATA.vwc),  VWC_MAX  = Math.max.apply(null, DATA.vwc);
 
 // ================= MAPPING REGISTRY =================
-// This is the exact same registry from the dropdown version. The only
-// thing that changes in this demo is WHAT EDITS IT — blocks instead of
-// <select> dropdowns. getMapped(), sonify(), and the visual code below
-// never know the difference.
 var SOURCE_STATS = {
   rain: { min: 0,        max: RAIN_MAX },
   temp: { min: TEMP_MIN, max: TEMP_MAX },
@@ -284,12 +280,7 @@ scrub.addEventListener('input', function(){
 
 setTargets(0,true);
 
-// ================= BLOCK-BASED MAPPING EDITOR (replaces the dropdown panel) =================
-// Self-contained — no external library, works offline. Each "block" is a
-// colored, draggable div with a fixed label (which sound element it
-// controls) and one dropdown (which data source currently feeds it).
-// Changing the dropdown edits mappings[target].source exactly like the
-// plain-dropdown version did; getMapped() never knows the difference.
+// ================= BLOCK-BASED MAPPING EDITOR =================
 var BLOCK_DEFS = [
   { target: 'dronePitch',   label: 'Bass drone pitch',   color: '#3b6fd6', x: 16, y: 12 },
   { target: 'droneTone',    label: 'Bass drone tone',    color: '#2f9e8f', x: 16, y: 60 },
