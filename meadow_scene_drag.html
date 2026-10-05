@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Meadow — Living Scene (patch-cable demo)</title>
+<style>
+  body { font-family: sans-serif; max-width: 760px; margin: 30px auto; color:#222; padding:0 16px; }
+  canvas { width: 100%; height: 320px; display: block; border-radius: 10px; background:#333; }
+  #readout { font-family: monospace; font-size: 12px; color: #555; margin-top: 6px; }
+  button { padding: 6px 14px; margin-right: 8px; cursor: pointer; }
+  input[type=range] { width: 100%; margin-top: 10px; accent-color: #2f6fed; }
+
+  #wiringPanel { position: relative; display: flex; gap: 48px; margin-top: 10px; user-select: none; }
+  #wires { position: absolute; top: 0; left: 0; pointer-events: none; }
+  #sourceCol { width: 170px; flex-shrink: 0; padding-top: 2px; }
+  #targetCol { flex: 1; min-width: 0; padding-top: 2px; }
+
+  .wnode { border-radius: 6px; font-size: 12.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; position: relative; }
+  .source-node { background: #6b7280; color: #fff; justify-content: space-between; }
+  .target-node { background: #fff; border: 1px solid #ddd; font-weight: 600; }
+
+  .wport { width: 13px; height: 13px; border-radius: 50%; background: #fff; border: 2px solid #444; cursor: crosshair; flex-shrink: 0; touch-action: none; }
+  .source-node .wport { border-color: #fff; background: rgba(255,255,255,0.25); }
+
+  .group-header { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 14px 0 5px; font-weight: 700; }
+  .group-header:first-child { margin-top: 0; }
+
+  .target-wrap { margin-bottom: 10px; }
+  .target-detail { margin-left: 23px; margin-top: -2px; font-size: 11.5px; color: #555; font-weight: 400; }
+  .wire-hint { color: #aaa; font-style: italic; }
+  .wired-line { display: flex; justify-content: space-between; align-items: center; }
+  .x-btn { cursor: pointer; color: #c33; font-weight: 700; padding: 0 4px; }
+  .x-btn:hover { color: #e00; }
+  .slider-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+  .slider-row input[type=range] { flex: 1; margin-top: 0; }
+  .pct-label { font-family: monospace; width: 36px; text-align: right; }
+</style>
+</head>
+<body>
+
+<h2>Smart Meadow — Living Scene</h2>
+<p style="font-size:13px;color:#666">This multimodal experience uses Smart Meadow sensor data from March 31st to April 9th, 2025.</p>
+
+<canvas id="cv" width="640" height="320"></canvas>
+<div id="readout">Ready.</div>
+<input type="range" id="scrub" min="0" max="215" value="0">
+<div style="margin-top:10px">
+  <button id="play-btn">Play</button>
+  <button id="reset-btn">Reset</button>
+</div>
+
+<div style="margin-top:20px;">
+  <div style="font-weight:bold;color:#000;font-size:13px;">Edit what musical and visual elements are mapped to nature data:</div>
+  <p style="font-size:12px;color:#888;margin:4px 0 0;">Drag a line from a sensor's dot (left) to a parameter's dot (right) to wire them together. The % slider controls how strongly that connection affects the parameter — 0% stays neutral no matter what the data does, 100% is the normal effect, above 100% exaggerates it. Click the × to disconnect.</p>
+  <div id="wiringPanel">
+    <svg id="wires"></svg>
+    <div id="sourceCol"></div>
+    <div id="targetCol"></div>
+  </div>
+</div>
+
+<script>
+// ================= DATA (Smart Meadow sensor readings) =================
+var DATA = {"rain": [1.778, 0.0, 0.254, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 18.542, 30.734, 3.556, 4.318, 22.356, 12.446, 12.954, 0.0, 0.0, 0.0, 0.254, 0.0, 0.0, 0.254, 0.0, 0.254, 6.858, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.254, 11.176, 6.096, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.922, 1.27, 6.35, 8.636, 3.81, 5.842, 4.572, 5.08, 2.54, 1.016, 2.286, 1.016, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.254, 0.0, 0.0, 0.0, 0.0, 0.254, 0.0, 0.0, 0.254, 0.254, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "vwc": [0.3615, 0.3733, 0.37, 0.3683, 0.3668, 0.364, 0.3613, 0.3598, 0.3595, 0.358, 0.3558, 0.3535, 0.3528, 0.3515, 0.3503, 0.348, 0.3473, 0.346, 0.3455, 0.3445, 0.3435, 0.3417, 0.3412, 0.3402, 0.3397, 0.3395, 0.339, 0.3385, 0.3382, 0.3377, 0.337, 0.3357, 0.3342, 0.3327, 0.3312, 0.3295, 0.3287, 0.3287, 0.326, 0.3245, 0.324, 0.3227, 0.3227, 0.3222, 0.3215, 0.322, 0.3217, 0.321, 0.321, 0.3205, 0.32, 0.3197, 0.319, 0.3182, 0.3177, 0.3167, 0.315, 0.3135, 0.3108, 0.3098, 0.308, 0.3068, 0.305, 0.3035, 0.3028, 0.302, 0.3013, 0.3005, 0.3003, 0.2998, 0.369, 0.4175, 0.404, 0.4005, 0.4128, 0.4163, 0.4205, 0.3997, 0.3922, 0.389, 0.3867, 0.3852, 0.383, 0.3827, 0.3837, 0.3832, 0.4088, 0.4002, 0.393, 0.389, 0.3867, 0.3847, 0.3822, 0.382, 0.381, 0.38, 0.3792, 0.3797, 0.3792, 0.379, 0.3792, 0.3785, 0.377, 0.375, 0.3723, 0.3695, 0.3668, 0.365, 0.363, 0.3615, 0.36, 0.359, 0.3578, 0.3573, 0.3563, 0.3553, 0.3548, 0.3538, 0.353, 0.3523, 0.3515, 0.3508, 0.35, 0.349, 0.3862, 0.41, 0.395, 0.3887, 0.3857, 0.3827, 0.3802, 0.3767, 0.408, 0.4085, 0.4125, 0.4168, 0.4153, 0.4155, 0.416, 0.415, 0.412, 0.4083, 0.4088, 0.4088, 0.3985, 0.393, 0.3905, 0.3882, 0.3867, 0.3857, 0.3845, 0.3827, 0.3817, 0.381, 0.3805, 0.3797, 0.3797, 0.379, 0.3792, 0.3797, 0.3797, 0.3795, 0.3805, 0.3797, 0.379, 0.379, 0.3782, 0.3775, 0.377, 0.3765, 0.376, 0.375, 0.374, 0.374, 0.3738, 0.373, 0.3725, 0.3708, 0.3698, 0.3683, 0.3673, 0.3668, 0.3663, 0.3658, 0.3653, 0.3653, 0.3653, 0.3645, 0.364, 0.3643, 0.364, 0.3635, 0.3625, 0.3623, 0.3605, 0.3595, 0.3595, 0.3593, 0.3593, 0.359, 0.3565, 0.3377, 0.3345, 0.3327, 0.3315, 0.331, 0.3297, 0.3292, 0.3282, 0.3277, 0.327, 0.3267, 0.3257, 0.3252, 0.3245, 0.3247], "temp": [62.98, 62.06, 62.24, 61.68, 54.91, 51.95, 51.28, 51.41, 50.7, 50.79, 51.18, 51.73, 52.5, 51.35, 48.75, 46.81, 46.25, 45.95, 45.67, 45.39, 45.01, 44.91, 45.08, 45.27, 45.35, 45.19, 45.02, 46.26, 48.56, 52.07, 54.72, 57.57, 60.3, 62.3, 64.0, 65.59, 66.45, 66.8, 65.36, 63.4, 61.81, 60.34, 59.64, 59.85, 60.69, 60.84, 63.0, 66.6, 67.56, 68.87, 69.5, 71.22, 73.96, 74.53, 76.9, 78.77, 81.12, 82.03, 82.53, 82.83, 83.65, 82.25, 79.74, 79.78, 80.55, 80.8, 80.67, 79.83, 78.26, 70.02, 67.22, 65.63, 64.99, 64.73, 64.63, 64.59, 64.77, 67.17, 68.49, 69.46, 70.38, 65.27, 63.45, 62.44, 61.73, 61.58, 61.43, 61.34, 61.5, 61.57, 61.76, 60.65, 58.2, 57.91, 57.53, 57.82, 58.59, 59.48, 60.22, 62.73, 70.22, 76.85, 78.67, 81.53, 83.92, 85.42, 83.8, 84.83, 84.9, 83.58, 80.97, 79.82, 79.33, 79.16, 78.89, 78.27, 77.56, 76.56, 75.54, 74.69, 73.84, 73.32, 73.27, 70.58, 64.76, 64.31, 65.45, 67.68, 70.11, 72.56, 75.35, 81.3, 69.56, 65.06, 63.84, 63.25, 62.41, 59.73, 58.78, 59.51, 60.09, 60.61, 61.81, 62.49, 61.21, 54.19, 53.28, 52.76, 52.8, 53.51, 54.48, 54.27, 53.31, 53.25, 53.09, 53.18, 53.47, 52.08, 50.65, 49.92, 49.42, 48.92, 47.67, 47.03, 46.0, 45.36, 45.11, 44.59, 44.06, 44.08, 44.05, 44.2, 44.64, 45.9, 47.58, 50.63, 52.86, 54.65, 55.61, 56.37, 56.56, 56.04, 54.67, 52.8, 51.69, 50.38, 49.72, 49.39, 48.28, 47.43, 45.35, 43.22, 41.19, 39.51, 39.12, 39.47, 40.61, 44.73, 47.25, 49.42, 51.94, 51.59, 50.05, 50.26, 50.05, 49.25, 47.81, 46.48, 45.76, 44.59, 42.69, 42.49, 42.31, 41.34, 40.46, 38.91], "rh": [88.28, 89.53, 90.38, 90.97, 91.2, 91.28, 90.45, 89.6, 88.9, 87.28, 84.72, 81.55, 78.09, 75.21, 74.24, 74.57, 74.34, 73.48, 73.42, 73.85, 74.08, 74.3, 74.33, 74.08, 74.08, 73.79, 73.28, 72.39, 70.86, 67.74, 63.96, 61.1, 57.89, 54.72, 51.38, 48.76, 46.72, 46.67, 48.59, 51.97, 54.86, 57.63, 59.93, 59.99, 58.55, 58.22, 59.23, 60.52, 65.4, 70.5, 73.53, 74.27, 73.14, 72.9, 71.3, 68.4, 64.64, 61.66, 59.74, 58.72, 57.02, 57.74, 61.73, 62.19, 60.04, 58.25, 57.49, 58.89, 61.84, 72.87, 81.0, 85.65, 88.12, 89.45, 90.55, 91.35, 91.97, 92.08, 91.35, 91.0, 89.62, 89.28, 88.22, 88.55, 89.55, 90.35, 91.33, 92.25, 92.78, 93.22, 93.45, 93.45, 93.35, 93.12, 92.97, 93.12, 93.28, 93.3, 93.22, 92.65, 90.08, 84.47, 79.54, 73.64, 67.82, 62.27, 61.15, 58.72, 56.56, 56.77, 59.48, 61.77, 62.06, 61.44, 61.45, 62.65, 63.93, 65.39, 65.56, 65.94, 68.34, 70.7, 72.24, 75.35, 83.38, 87.08, 87.92, 85.88, 81.78, 77.44, 74.3, 63.62, 75.7, 84.35, 87.28, 89.08, 90.28, 91.17, 91.92, 92.5, 92.92, 93.33, 93.55, 93.67, 93.08, 93.15, 92.88, 92.9, 92.97, 92.65, 92.15, 91.85, 92.03, 92.45, 92.4, 92.22, 92.4, 92.72, 93.35, 93.67, 93.62, 93.4, 93.25, 92.72, 92.85, 92.67, 92.28, 92.42, 92.88, 92.58, 91.8, 91.03, 90.38, 89.67, 88.22, 84.88, 79.93, 73.34, 65.46, 59.81, 55.86, 52.61, 52.45, 54.4, 57.43, 60.37, 61.95, 63.71, 67.15, 69.88, 67.15, 64.05, 62.08, 59.72, 60.59, 60.66, 58.85, 53.05, 47.46, 44.3, 42.43, 38.76, 36.87, 36.08, 37.09, 38.62, 38.66, 39.91, 40.63, 42.51, 46.06, 46.48, 46.3, 48.3, 50.6, 53.9], "ts": ["03-31 05h", "03-31 06h", "03-31 07h", "03-31 08h", "03-31 09h", "03-31 10h", "03-31 11h", "03-31 12h", "03-31 13h", "03-31 14h", "03-31 15h", "03-31 16h", "03-31 17h", "03-31 18h", "03-31 19h", "03-31 20h", "03-31 21h", "03-31 22h", "03-31 23h", "04-01 00h", "04-01 01h", "04-01 02h", "04-01 03h", "04-01 04h", "04-01 05h", "04-01 06h", "04-01 07h", "04-01 08h", "04-01 09h", "04-01 10h", "04-01 11h", "04-01 12h", "04-01 13h", "04-01 14h", "04-01 15h", "04-01 16h", "04-01 17h", "04-01 18h", "04-01 19h", "04-01 20h", "04-01 21h", "04-01 22h", "04-01 23h", "04-02 00h", "04-02 01h", "04-02 02h", "04-02 03h", "04-02 04h", "04-02 05h", "04-02 06h", "04-02 07h", "04-02 08h", "04-02 09h", "04-02 10h", "04-02 11h", "04-02 12h", "04-02 13h", "04-02 14h", "04-02 15h", "04-02 16h", "04-02 17h", "04-02 18h", "04-02 19h", "04-02 20h", "04-02 21h", "04-02 22h", "04-02 23h", "04-03 00h", "04-03 01h", "04-03 02h", "04-03 03h", "04-03 04h", "04-03 05h", "04-03 06h", "04-03 07h", "04-03 08h", "04-03 09h", "04-03 10h", "04-03 11h", "04-03 12h", "04-03 13h", "04-03 14h", "04-03 15h", "04-03 16h", "04-03 17h", "04-03 18h", "04-03 19h", "04-03 20h", "04-03 21h", "04-03 22h", "04-03 23h", "04-04 00h", "04-04 01h", "04-04 02h", "04-04 03h", "04-04 04h", "04-04 05h", "04-04 06h", "04-04 07h", "04-04 08h", "04-04 09h", "04-04 10h", "04-04 11h", "04-04 12h", "04-04 13h", "04-04 14h", "04-04 15h", "04-04 16h", "04-04 17h", "04-04 18h", "04-04 19h", "04-04 20h", "04-04 21h", "04-04 22h", "04-04 23h", "04-05 00h", "04-05 01h", "04-05 02h", "04-05 03h", "04-05 04h", "04-05 05h", "04-05 06h", "04-05 07h", "04-05 08h", "04-05 09h", "04-05 10h", "04-05 11h", "04-05 12h", "04-05 13h", "04-05 14h", "04-05 15h", "04-05 16h", "04-05 17h", "04-05 18h", "04-05 19h", "04-05 20h", "04-05 21h", "04-05 22h", "04-05 23h", "04-06 00h", "04-06 01h", "04-06 02h", "04-06 03h", "04-06 04h", "04-06 05h", "04-06 06h", "04-06 07h", "04-06 08h", "04-06 09h", "04-06 10h", "04-06 11h", "04-06 12h", "04-06 13h", "04-06 14h", "04-06 15h", "04-06 16h", "04-06 17h", "04-06 18h", "04-06 19h", "04-06 20h", "04-06 21h", "04-06 22h", "04-06 23h", "04-07 00h", "04-07 01h", "04-07 02h", "04-07 03h", "04-07 04h", "04-07 05h", "04-07 06h", "04-07 07h", "04-07 08h", "04-07 09h", "04-07 10h", "04-07 11h", "04-07 12h", "04-07 13h", "04-07 14h", "04-07 15h", "04-07 16h", "04-07 17h", "04-07 18h", "04-07 19h", "04-07 20h", "04-07 21h", "04-07 22h", "04-07 23h", "04-08 00h", "04-08 01h", "04-08 02h", "04-08 03h", "04-08 04h", "04-08 05h", "04-08 06h", "04-08 07h", "04-08 08h", "04-08 09h", "04-08 10h", "04-08 11h", "04-08 12h", "04-08 13h", "04-08 14h", "04-08 15h", "04-08 16h", "04-08 17h", "04-08 18h", "04-08 19h", "04-08 20h", "04-08 21h", "04-08 22h", "04-08 23h", "04-09 00h", "04-09 01h", "04-09 02h", "04-09 03h", "04-09 04h"]};
+var N = DATA.rain.length;
+var RAIN_MAX = Math.max.apply(null, DATA.rain) || 1;
+var TEMP_MIN = Math.min.apply(null, DATA.temp), TEMP_MAX = Math.max.apply(null, DATA.temp);
+var RH_MIN   = Math.min.apply(null, DATA.rh),   RH_MAX   = Math.max.apply(null, DATA.rh);
+var VWC_MIN  = Math.min.apply(null, DATA.vwc),  VWC_MAX  = Math.max.apply(null, DATA.vwc);
+
+// ================= MAPPING REGISTRY =================
+// Every target has a "source" (which sensor feeds it, or null if unwired)
+// and an "intensity" (0 = ignore the data entirely and stay neutral, 1 =
+// normal effect, up to 1.5 = exaggerated). getMapped() is still the only
+// function that ever reads this object directly.
+var SOURCE_STATS = {
+  rain: { min: 0,        max: RAIN_MAX },
+  temp: { min: TEMP_MIN, max: TEMP_MAX },
+  rh:   { min: RH_MIN,   max: RH_MAX   },
+  vwc:  { min: VWC_MIN,  max: VWC_MAX  }
+};
+var mappings = {
+  dronePitch:   { source: null, intensity: 1 },
+  droneTone:    { source: null, intensity: 1 },
+  melodyPitch:  { source: null, intensity: 1 },
+  melodyVolume: { source: null, intensity: 1 },
+  rainSound:    { source: null, intensity: 1 },
+  cloudCount:   { source: null, intensity: 1 },
+  cloudSize:    { source: null, intensity: 1 },
+  skyColor:     { source: null, intensity: 1 },
+  grassGrowth:  { source: null, intensity: 1 },
+  rainVisual:   { source: null, intensity: 1 },
+  atmosphere:   { source: null, intensity: 1 },
+  sceneSpeed:   { source: null, intensity: 1 }
+};
+function clamp01(v){ return Math.max(0,Math.min(1,v)); }
+function norm(v,lo,hi){ if(hi===lo) return 0.5; return clamp01((v-lo)/(hi-lo)); }
+function getMapped(target, i){
+  var m = mappings[target];
+  if(!m.source) return 0.5; // unwired → stays neutral
+  var stats = SOURCE_STATS[m.source];
+  var raw = DATA[m.source][i];
+  var n = norm(raw, stats.min, stats.max);
+  var intensity = (m.intensity===undefined) ? 1 : m.intensity;
+  return clamp01(0.5 + (n - 0.5) * intensity);
+}
+
+// ================= MUSICAL AUDIO ENGINE =================
+var BASS_SCALE  = [65.41, 73.42, 82.41, 98.00, 110.00];
+var MID_SCALE   = [130.81,146.83,164.81,196.00,220.00,261.63,293.66,329.63,392.00,440.00];
+var HIGH_SCALE  = [523.25,587.33,659.25,783.99,880.00,1046.50];
+function lerp(a,b,t){ return a+(b-a)*t; }
+function quantize(t, scale){ return scale[Math.round(clamp01(t)*(scale.length-1))]; }
+
+var audioCtx=null, masterBus, reverbSend, convolver;
+var droneOsc1, droneOsc2, droneGain, droneFilter, audioReady=false;
+
+function makeImpulse(ctx, dur, decay){
+  var rate=ctx.sampleRate, len=Math.floor(rate*dur);
+  var imp=ctx.createBuffer(2,len,rate);
+  for(var ch=0;ch<2;ch++){ var d=imp.getChannelData(ch); for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay); } }
+  return imp;
+}
+function ensureAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterBus=audioCtx.createGain(); masterBus.gain.value=1; masterBus.connect(audioCtx.destination);
+  convolver=audioCtx.createConvolver(); convolver.buffer=makeImpulse(audioCtx,2.2,2.5);
+  reverbSend=audioCtx.createGain(); reverbSend.gain.value=0.4;
+  masterBus.connect(reverbSend); reverbSend.connect(convolver); convolver.connect(audioCtx.destination);
+  droneFilter=audioCtx.createBiquadFilter(); droneFilter.type='lowpass'; droneFilter.frequency.value=800;
+  droneGain=audioCtx.createGain(); droneGain.gain.value=0.0001;
+  droneOsc1=audioCtx.createOscillator(); droneOsc1.type='triangle'; droneOsc1.frequency.value=BASS_SCALE[0];
+  droneOsc2=audioCtx.createOscillator(); droneOsc2.type='sine'; droneOsc2.frequency.value=BASS_SCALE[0]*1.004;
+  droneOsc1.connect(droneFilter); droneOsc2.connect(droneFilter);
+  droneFilter.connect(droneGain); droneGain.connect(masterBus);
+  droneOsc1.start(); droneOsc2.start();
+  audioReady=true;
+}
+function updateDrone(vwcN, rhN, dur){
+  var t=audioCtx.currentTime; var freq=quantize(vwcN, BASS_SCALE);
+  droneOsc1.frequency.linearRampToValueAtTime(freq, t+dur);
+  droneOsc2.frequency.linearRampToValueAtTime(freq*1.004, t+dur);
+  droneFilter.frequency.linearRampToValueAtTime(300+rhN*1400, t+dur);
+}
+function playMelodyPluck(tempN, rhN){
+  var t=audioCtx.currentTime; var freq=quantize(tempN, MID_SCALE);
+  var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type='sine'; o.frequency.setValueAtTime(freq,t);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.05+rhN*0.03,t+0.03); g.gain.exponentialRampToValueAtTime(0.0001,t+0.65);
+  o.connect(g).connect(masterBus); o.start(t); o.stop(t+0.7);
+  var o2=audioCtx.createOscillator(), g2=audioCtx.createGain();
+  o2.type='sine'; o2.frequency.setValueAtTime(freq*2,t);
+  g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.015,t+0.03); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+  o2.connect(g2).connect(masterBus); o2.start(t); o2.stop(t+0.45);
+}
+function playRain(rainN){
+  var t=audioCtx.currentTime;
+  var bufSize=audioCtx.sampleRate*0.22;
+  var buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  var d=buf.getChannelData(0);
+  for(var k=0;k<bufSize;k++){ d[k]=(Math.random()*2-1)*(1-k/bufSize); }
+  var src=audioCtx.createBufferSource(); src.buffer=buf;
+  var bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(900+rainN*1500,t);
+  var gr=audioCtx.createGain(); gr.gain.setValueAtTime(Math.min(0.18,0.04+rainN*0.18),t);
+  src.connect(bp).connect(gr).connect(masterBus); src.start(t);
+
+  var dropCount=1+Math.round(rainN*3);
+  for(var i=0;i<dropCount;i++){
+    var dt=t+i*0.045+Math.random()*0.02;
+    var freq=HIGH_SCALE[Math.floor(Math.random()*HIGH_SCALE.length)];
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(freq,dt);
+    g.gain.setValueAtTime(0.0001,dt); g.gain.linearRampToValueAtTime(0.035+rainN*0.03,dt+0.008); g.gain.exponentialRampToValueAtTime(0.0001,dt+0.5);
+    o.connect(g).connect(masterBus); o.start(dt); o.stop(dt+0.55);
+  }
+}
+// An instrument only makes sound once at least one of its own parameters
+// has been wired to a sensor — otherwise it would play a constant,
+// unexplained tone/texture before the person has connected anything.
+function droneWired(){ return !!(mappings.dronePitch.source || mappings.droneTone.source); }
+function melodyWired(){ return !!(mappings.melodyPitch.source || mappings.melodyVolume.source); }
+function rainWired(){ return !!mappings.rainSound.source; }
+
+function sonify(i, tickDur){
+  if(!audioReady) return;
+  var dronePitchN   = getMapped('dronePitch', i);
+  var droneToneN    = getMapped('droneTone', i);
+  var melodyPitchN  = getMapped('melodyPitch', i);
+  var melodyVolumeN = getMapped('melodyVolume', i);
+  var rainSoundN    = getMapped('rainSound', i);
+  if(droneWired()) updateDrone(dronePitchN, droneToneN, tickDur*0.9);
+  if(melodyWired()) playMelodyPluck(melodyPitchN, melodyVolumeN);
+  if(rainWired() && rainSoundN>0.02) playRain(rainSoundN);
+  updateDroneAudibility();
+}
+
+// Fades the drone in/out live as dronePitch/droneTone get wired or
+// unwired, instead of only checking once when Play is pressed.
+function updateDroneAudibility(){
+  if(!droneGain || !audioCtx) return;
+  var target = (playing && droneWired()) ? 0.09 : 0.0001;
+  droneGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  droneGain.gain.linearRampToValueAtTime(target, audioCtx.currentTime+0.3);
+}
+
+// ================= VISUAL SCENE =================
+var canvas=document.getElementById('cv'), ctx=canvas.getContext('2d');
+var cw=canvas.width, ch=canvas.height;
+var scrub=document.getElementById('scrub'), readout=document.getElementById('readout'), playBtn=document.getElementById('play-btn');
+var idx=0, intervalId=null, playing=false;
+
+// Smoothed ("s") vs target ("t") values — same easing pattern for every
+// visual channel, including the three new ones (cloud count/size, speed).
+var sTemp=0.5, sVwc=0.3, sRh=0.5, sCloudCount=0.5, sCloudSize=0.5, sSpeed=0.5;
+var tTemp=0.5, tVwc=0.3, tRh=0.5, tCloudCount=0.5, tCloudSize=0.5, tSpeed=0.5;
+function setTargets(i, snap){
+  tTemp=getMapped('skyColor', i); tVwc=getMapped('grassGrowth', i); tRh=getMapped('atmosphere', i);
+  tCloudCount=getMapped('cloudCount', i); tCloudSize=getMapped('cloudSize', i); tSpeed=getMapped('sceneSpeed', i);
+  if(snap){ sTemp=tTemp; sVwc=tVwc; sRh=tRh; sCloudCount=tCloudCount; sCloudSize=tCloudSize; sSpeed=tSpeed; }
+}
+var BLADES=48, blades=[];
+for(var b=0;b<BLADES;b++){ blades.push({ x:(b+0.5)/BLADES*cw+(Math.random()*14-7), baseH:40+Math.random()*40, phase:Math.random()*Math.PI*2, speed:0.7+Math.random()*0.6 }); }
+function makeHill(baseY, amp, freqs){ var pts=[]; for(var x=0;x<=cw;x+=8){ var y=baseY; for(var f=0;f<freqs.length;f++){ y += Math.sin(x*freqs[f].w+freqs[f].ph)*freqs[f].a; } pts.push({x:x,y:y}); } return pts; }
+var hillBack = makeHill(ch*0.62, 1, [{w:0.006,a:14,ph:1.1},{w:0.017,a:6,ph:2.4}]);
+var hillFront = makeHill(ch*0.74, 1, [{w:0.008,a:18,ph:0.4},{w:0.02,a:8,ph:3.1}]);
+function drawHill(pts,color){ ctx.beginPath(); ctx.moveTo(0,ch); ctx.lineTo(pts[0].x,pts[0].y); for(var i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y); ctx.lineTo(cw,ch); ctx.closePath(); ctx.fillStyle=color; ctx.fill(); }
+
+// Clouds are now a POOL — only the first N (driven by cloudCount) are drawn
+// each frame, and their size is scaled by a global factor (driven by
+// cloudSize) rather than each cloud having its own fixed random size.
+var CLOUD_POOL = 8;
+var clouds=[]; for(var c=0;c<CLOUD_POOL;c++){ clouds.push({ x:Math.random()*cw, y:20+Math.random()*70, baseS:0.6+Math.random()*0.5, speed:5+Math.random()*8 }); }
+
+var stars=[]; for(var st=0;st<40;st++){ stars.push({ x:Math.random()*cw, y:Math.random()*ch*0.5, r:0.6+Math.random()*1.2, ph:Math.random()*10 }); }
+var birds=[]; for(var bd=0;bd<2;bd++){ birds.push({ x:-50-bd*120, y:40+Math.random()*40, speed:26+Math.random()*10, amp:6+Math.random()*4 }); }
+var drops=[];
+function spawnRain(rainN){ var count=Math.round(rainN*26); for(var k=0;k<count;k++){ drops.push({ x:Math.random()*cw, y:-10-Math.random()*60, vy:220+Math.random()*140, len:8+Math.random()*10 }); } }
+
+var lastT=performance.now();
+function render(now){
+  var dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+  sTemp += (tTemp-sTemp)*Math.min(1,dt*1.5); sVwc += (tVwc-sVwc)*Math.min(1,dt*0.8); sRh += (tRh-sRh)*Math.min(1,dt*1.2);
+  sCloudCount += (tCloudCount-sCloudCount)*Math.min(1,dt*1.0);
+  sCloudSize  += (tCloudSize -sCloudSize )*Math.min(1,dt*1.0);
+  sSpeed      += (tSpeed     -sSpeed     )*Math.min(1,dt*1.0);
+  var speedMul = 0.5 + sSpeed*1.0; // 0.5x – 1.5x, defaults near 1x
+
+  var hour = idx % 24;
+  var dayFactor = clamp01(0.5+0.5*Math.cos((hour-13)*(2*Math.PI/24)));
+  var rainN = norm(DATA.rain[idx],0,RAIN_MAX);
+
+  var dawn=[58,84,133], dusk=[214,140,66];
+  var topCol=[ lerp(dawn[0],dusk[0],sTemp), lerp(dawn[1],dusk[1],sTemp), lerp(dawn[2],dusk[2],sTemp) ];
+  var botCol=[ lerp(120,238,sTemp), lerp(150,214,sTemp), lerp(190,150,sTemp) ];
+  var nightMul=0.25+0.75*dayFactor;
+  var grad=ctx.createLinearGradient(0,0,0,ch);
+  grad.addColorStop(0,'rgb('+Math.round(topCol[0]*nightMul)+','+Math.round(topCol[1]*nightMul)+','+Math.round(topCol[2]*nightMul*1.05)+')');
+  grad.addColorStop(1,'rgb('+Math.round(botCol[0]*nightMul)+','+Math.round(botCol[1]*nightMul)+','+Math.round(botCol[2]*nightMul)+')');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,cw,ch);
+
+  if(dayFactor<0.4){ var starAlpha=(0.4-dayFactor)/0.4; for(var s=0;s<stars.length;s++){ var stt=stars[s]; var tw=0.5+0.5*Math.sin(now/500+stt.ph); ctx.fillStyle='rgba(255,255,255,'+(starAlpha*tw*0.9)+')'; ctx.beginPath(); ctx.arc(stt.x,stt.y,stt.r,0,Math.PI*2); ctx.fill(); } }
+
+  var glowCol = dayFactor>0.5 ? '255,244,214' : '210,220,255';
+  var glow=ctx.createRadialGradient(cw*0.82,ch*0.2,2,cw*0.82,ch*0.2,75);
+  glow.addColorStop(0,'rgba('+glowCol+','+(0.15+dayFactor*0.35)+')'); glow.addColorStop(1,'rgba('+glowCol+',0)');
+  ctx.fillStyle=glow; ctx.fillRect(0,0,cw,ch);
+
+  var visibleClouds = Math.max(1, Math.round(1 + sCloudCount*(CLOUD_POOL-1)));
+  var cloudSizeMul = 0.5 + sCloudSize*1.3;
+  for(var c=0;c<visibleClouds;c++){
+    var cl=clouds[c]; cl.x+=cl.speed*dt*speedMul; if(cl.x>cw+80) cl.x=-80;
+    var alpha=(0.25+sRh*0.35)*nightMul; ctx.fillStyle='rgba(255,255,255,'+alpha+')';
+    var s = cl.baseS*cloudSizeMul;
+    for(var p=0;p<4;p++){ ctx.beginPath(); ctx.ellipse(cl.x+p*18*s, cl.y+Math.sin(p)*4, 22*s, 13*s, 0,0,Math.PI*2); ctx.fill(); }
+  }
+
+  if(dayFactor>0.4 && rainN<0.1){ for(var bi=0;bi<birds.length;bi++){ var bd=birds[bi]; bd.x+=bd.speed*dt; if(bd.x>cw+40) bd.x=-40; var by=bd.y+Math.sin(now/300+bi)*bd.amp; ctx.strokeStyle='rgba(60,50,50,0.55)'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(bd.x-6,by+3); ctx.quadraticCurveTo(bd.x,by-4,bd.x+6,by+3); ctx.stroke(); } }
+
+  var backTint = dayFactor>0.5 ? [126,150,120] : [58,70,78];
+  var frontTint = dayFactor>0.5 ? [72,110,66] : [30,44,40];
+  drawHill(hillBack, 'rgba('+backTint[0]+','+backTint[1]+','+backTint[2]+',0.75)');
+  drawHill(hillFront, 'rgba('+frontTint[0]+','+frontTint[1]+','+frontTint[2]+',0.9)');
+
+  var grassColor=[ lerp(179,42,sVwc), lerp(173,120,sVwc), lerp(92,58,sVwc) ];
+  ctx.strokeStyle='rgb('+Math.round(grassColor[0]*nightMul)+','+Math.round(grassColor[1]*nightMul)+','+Math.round(grassColor[2]*nightMul)+')';
+  ctx.lineCap='round';
+  var sway=6+(drops.length>10?10:0);
+  for(var gi=0;gi<blades.length;gi++){ var bl=blades[gi]; var h=bl.baseH*(0.35+0.75*sVwc); var swayX=Math.sin(now/1000*bl.speed*speedMul+bl.phase)*sway; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(bl.x,ch); ctx.quadraticCurveTo(bl.x+swayX*0.6,ch-h*0.6,bl.x+swayX,ch-h); ctx.stroke(); }
+
+  ctx.strokeStyle='rgba(210,232,255,0.8)'; ctx.lineWidth=1.4;
+  for(var ri=drops.length-1;ri>=0;ri--){ var dr=drops[ri]; dr.y+=dr.vy*dt*speedMul; ctx.beginPath(); ctx.moveTo(dr.x,dr.y); ctx.lineTo(dr.x-2,dr.y+dr.len); ctx.stroke(); if(dr.y>ch) drops.splice(ri,1); }
+  if(drops.length>240) drops.splice(0,drops.length-240);
+
+  var mistAlpha=sRh*0.22;
+  for(var m=0;m<3;m++){ var mg=ctx.createRadialGradient(cw*(0.2+m*0.3)+Math.sin(now/2000+m)*20, ch*0.75, 10, cw*(0.2+m*0.3), ch*0.75, 160); mg.addColorStop(0,'rgba(255,255,255,'+mistAlpha+')'); mg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=mg; ctx.fillRect(0,ch*0.45,cw,ch*0.55); }
+
+  drawWires();
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+var TICK_MS=180;
+function tick(){
+  idx=(idx+1)%N; scrub.value=idx;
+  setTargets(idx,false);
+  var rainVisualN=getMapped('rainVisual', idx);
+  if(rainVisualN>0.02) spawnRain(rainVisualN);
+  sonify(idx, TICK_MS/1000);
+  var dayNum = Math.floor(idx/24)+1;
+  readout.textContent = DATA.ts[idx]+'  (day '+dayNum+' of '+Math.ceil(N/24)+')  |  rain '+DATA.rain[idx].toFixed(2)+'mm  temp '+DATA.temp[idx].toFixed(1)+'°F  RH '+DATA.rh[idx].toFixed(1)+'%  VWC '+DATA.vwc[idx].toFixed(3);
+}
+playBtn.addEventListener('click', function(){
+  ensureAudio();
+  playing=!playing; playBtn.textContent=playing?'Pause':'Play';
+  if(playing){
+    updateDroneAudibility();
+    intervalId=setInterval(tick,TICK_MS);
+  } else {
+    clearInterval(intervalId);
+    updateDroneAudibility();
+  }
+});
+document.getElementById('reset-btn').addEventListener('click', function(){
+  playing=false; clearInterval(intervalId); playBtn.textContent='Play';
+  if(droneGain && audioCtx){ droneGain.gain.cancelScheduledValues(audioCtx.currentTime); droneGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime+0.3); }
+  idx=0; scrub.value=0; drops=[]; setTargets(0,true);
+});
+scrub.addEventListener('input', function(){
+  playing=false; clearInterval(intervalId); playBtn.textContent='Play';
+  if(droneGain && audioCtx){ droneGain.gain.cancelScheduledValues(audioCtx.currentTime); droneGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime+0.3); }
+  idx=+scrub.value; setTargets(idx,true);
+});
+
+setTargets(0,true);
+
+// ================= PATCH-CABLE WIRING UI =================
+// Sources (left) and targets (right, grouped under simple musical/visual
+// category headers). The only interaction is dragging a line from one
+// port to another — no dropdowns, no auto-connect-by-proximity.
+var SOURCE_DEFS = [
+  { key:'rain', label:'Rainfall' },
+  { key:'temp', label:'Air temperature' },
+  { key:'rh',   label:'Humidity' },
+  { key:'vwc',  label:'Soil moisture' }
+];
+var TARGET_DEFS = [
+  { key:'dronePitch',   group:'Drone',       label:'Pitch',     color:'#3b6fd6' },
+  { key:'droneTone',    group:'Drone',       label:'Tone',      color:'#3b6fd6' },
+  { key:'melodyPitch',  group:'Melody',      label:'Pitch',     color:'#7a4fd1' },
+  { key:'melodyVolume', group:'Melody',      label:'Volume',    color:'#7a4fd1' },
+  { key:'rainSound',    group:'Rain Sound',  label:'Intensity', color:'#2286c9' },
+  { key:'cloudCount',   group:'Clouds',      label:'Count',     color:'#64748b' },
+  { key:'cloudSize',    group:'Clouds',      label:'Size',      color:'#64748b' },
+  { key:'skyColor',     group:'Sky',         label:'Warmth',    color:'#d97706' },
+  { key:'grassGrowth',  group:'Grass',       label:'Height',    color:'#16a34a' },
+  { key:'rainVisual',   group:'Rain Visual', label:'Drops',     color:'#0ea5e9' },
+  { key:'atmosphere',   group:'Mist',        label:'Amount',    color:'#94a3b8' },
+  { key:'sceneSpeed',   group:'Scene',       label:'Speed',     color:'#db2777' }
+];
+
+var wiringPanel = document.getElementById('wiringPanel');
+var wiresSvg = document.getElementById('wires');
+var sourceCol = document.getElementById('sourceCol');
+var targetCol = document.getElementById('targetCol');
+var nodeEls = {}; // targetKey -> { port, detail }
+
+function buildSourceNode(def){
+  var el = document.createElement('div');
+  el.className = 'wnode source-node';
+  var label = document.createElement('span'); label.textContent = def.label;
+  var port = document.createElement('div'); port.className='wport'; port.dataset.kind='source'; port.dataset.id=def.key;
+  el.appendChild(label); el.appendChild(port);
+  sourceCol.appendChild(el);
+}
+function buildTargetNode(def){
+  var wrap = document.createElement('div'); wrap.className = 'target-wrap';
+  var row = document.createElement('div'); row.className = 'wnode target-node';
+  row.style.borderLeft = '4px solid '+def.color;
+  var port = document.createElement('div'); port.className='wport'; port.dataset.kind='target'; port.dataset.id=def.key;
+  var label = document.createElement('span'); label.textContent = def.label;
+  row.appendChild(port); row.appendChild(label);
+  wrap.appendChild(row);
+  var detail = document.createElement('div'); detail.className='target-detail';
+  wrap.appendChild(detail);
+  targetCol.appendChild(wrap);
+  nodeEls[def.key] = { port: port, detail: detail };
+  refreshTargetDetail(def.key);
+}
+function refreshTargetDetail(key){
+  var def = TARGET_DEFS.filter(function(t){ return t.key===key; })[0];
+  var info = nodeEls[key];
+  var m = mappings[key];
+  info.detail.innerHTML = '';
+  if(!m.source){
+    var hint = document.createElement('div'); hint.className='wire-hint'; hint.textContent='Drag a line from a sensor';
+    info.detail.appendChild(hint);
+    return;
+  }
+  var srcDef = SOURCE_DEFS.filter(function(s){ return s.key===m.source; })[0];
+  var line = document.createElement('div'); line.className='wired-line';
+  var txt = document.createElement('span'); txt.textContent = '← ' + srcDef.label;
+  var xBtn = document.createElement('span'); xBtn.className='x-btn'; xBtn.textContent='×';
+  xBtn.addEventListener('click', function(){ mappings[key].source=null; refreshTargetDetail(key); });
+  line.appendChild(txt); line.appendChild(xBtn);
+
+  var sliderRow = document.createElement('div'); sliderRow.className='slider-row';
+  var pct = document.createElement('span'); pct.className='pct-label'; pct.textContent = Math.round(m.intensity*100)+'%';
+  var slider = document.createElement('input'); slider.type='range'; slider.min=0; slider.max=150; slider.value=Math.round(m.intensity*100);
+  slider.style.accentColor = def.color;
+  slider.addEventListener('input', function(){ mappings[key].intensity = (+slider.value)/100; pct.textContent = slider.value+'%'; });
+  sliderRow.appendChild(slider); sliderRow.appendChild(pct);
+
+  info.detail.appendChild(line);
+  info.detail.appendChild(sliderRow);
+}
+
+SOURCE_DEFS.forEach(buildSourceNode);
+var lastGroup = null;
+TARGET_DEFS.forEach(function(def){
+  if(def.group !== lastGroup){
+    var h = document.createElement('div'); h.className='group-header'; h.textContent = def.group; h.style.color = def.color;
+    targetCol.appendChild(h);
+    lastGroup = def.group;
+  }
+  buildTargetNode(def);
+});
+
+function portPos(portEl){
+  var r = portEl.getBoundingClientRect(), c = wiringPanel.getBoundingClientRect();
+  return { x: r.left + r.width/2 - c.left, y: r.top + r.height/2 - c.top };
+}
+function allPorts(kind){
+  return Array.prototype.slice.call(document.querySelectorAll('.wport[data-kind="'+kind+'"]'));
+}
+function drawCurve(p1,p2,color,width,opacity,dashed){
+  var svgNS='http://www.w3.org/2000/svg';
+  var path=document.createElementNS(svgNS,'path');
+  var midX=(p1.x+p2.x)/2;
+  var d='M '+p1.x+' '+p1.y+' C '+midX+' '+p1.y+', '+midX+' '+p2.y+', '+p2.x+' '+p2.y;
+  path.setAttribute('d',d); path.setAttribute('stroke',color); path.setAttribute('stroke-width',width);
+  path.setAttribute('fill','none'); path.setAttribute('opacity',opacity);
+  if(dashed) path.setAttribute('stroke-dasharray','5,4');
+  wiresSvg.appendChild(path);
+}
+var activeDrag = null;
+function drawWires(){
+  wiresSvg.setAttribute('width', wiringPanel.scrollWidth);
+  wiresSvg.setAttribute('height', wiringPanel.scrollHeight);
+  wiresSvg.innerHTML='';
+  TARGET_DEFS.forEach(function(def){
+    var m = mappings[def.key];
+    if(!m.source) return;
+    var srcPort = document.querySelector('.wport[data-kind="source"][data-id="'+m.source+'"]');
+    var tgtPort = nodeEls[def.key].port;
+    if(!srcPort || !tgtPort) return;
+    drawCurve(portPos(srcPort), portPos(tgtPort), def.color, 2.5, 0.85);
+  });
+  if(activeDrag){
+    var el = activeDrag.kind==='source'
+      ? document.querySelector('.wport[data-kind="source"][data-id="'+activeDrag.id+'"]')
+      : nodeEls[activeDrag.id].port;
+    drawCurve(portPos(el), { x: activeDrag.x, y: activeDrag.y }, '#999', 2, 0.6, true);
+  }
+}
+
+// This is the actual wiring mechanism: pointerdown on any port starts a
+// drag; pointerup near an opposite-kind port completes the connection by
+// setting mappings[targetKey].source = sourceKey. Nothing else changes —
+// getMapped() picks it up on the very next tick, same as every version before.
+wiringPanel.addEventListener('pointerdown', function(e){
+  var portEl = e.target.closest('.wport');
+  if(!portEl) return;
+  var panelRect = wiringPanel.getBoundingClientRect();
+  activeDrag = { kind: portEl.dataset.kind, id: portEl.dataset.id, x: e.clientX-panelRect.left, y: e.clientY-panelRect.top };
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragEnd);
+});
+function onDragMove(e){
+  if(!activeDrag) return;
+  var panelRect = wiringPanel.getBoundingClientRect();
+  activeDrag.x = e.clientX-panelRect.left; activeDrag.y = e.clientY-panelRect.top;
+}
+function onDragEnd(e){
+  if(!activeDrag){ cleanupDrag(); return; }
+  var panelRect = wiringPanel.getBoundingClientRect();
+  var relX = e.clientX-panelRect.left, relY = e.clientY-panelRect.top;
+  var oppKind = activeDrag.kind==='source' ? 'target' : 'source';
+  var candidates = allPorts(oppKind);
+  var best=null, bestD=32;
+  candidates.forEach(function(p){
+    var pos = portPos(p);
+    var d = Math.hypot(pos.x-relX, pos.y-relY);
+    if(d<bestD){ bestD=d; best=p; }
+  });
+  if(best){
+    var targetKey = activeDrag.kind==='source' ? best.dataset.id : activeDrag.id;
+    var sourceKey = activeDrag.kind==='source' ? activeDrag.id : best.dataset.id;
+    mappings[targetKey].source = sourceKey;
+    refreshTargetDetail(targetKey);
+  }
+  cleanupDrag();
+}
+function cleanupDrag(){
+  activeDrag=null;
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragEnd);
+}
+
+drawWires();
+</script>
+</body>
+</html>
