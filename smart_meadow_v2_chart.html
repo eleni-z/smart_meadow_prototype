@@ -50,17 +50,18 @@
   /* ---- instructions + wiring panel ---- */
   .instr-title { font-weight:700; font-size:13.5px; margin:0 0 2px; }
   .instr { font-size:13.5px; line-height:1.38; margin:0 0 6px; }
-  #wiringPanel { position:relative; user-select:none; height:520px; overflow:hidden; background:#fff; }
+  #wiringPanel { position:relative; user-select:none; height:446px; overflow:visible; background:#fff; }
   #wires { position:absolute; top:0; left:0; pointer-events:none; }
   .colhead { position:absolute; top:6px; text-align:center; font-weight:700; font-size:14px; pointer-events:none; }
 
-  #instrBox { margin-top:14px; }
-  #instrToggle { display:inline-flex; align-items:center; gap:10px; background:#fff; border:1.5px solid #333; border-radius:999px; padding:8px 18px; font:inherit; font-weight:700; font-size:14px; color:#222; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.12); transition:background .15s, box-shadow .15s; }
-  #instrToggle:hover { background:#f2f2f2; box-shadow:0 2px 6px rgba(0,0,0,.16); }
-  #instrToggle #instrArrow { font-size:12px; transition:transform .2s; }
-  #instrToggle[aria-expanded="true"] { background:#ececec; }
+  #instrBox { position:relative; margin-top:6px; }
+  #instrToggle { display:flex; width:100%; align-items:center; justify-content:space-between; gap:10px; background:#dcdcdc; border:1.5px solid #333; border-radius:12px; padding:9px 16px; font:inherit; font-weight:700; font-size:14.5px; color:#222; text-align:left; cursor:pointer; transition:background .15s; }
+  #instrToggle:hover { background:#d0d0d0; }
+  #instrToggle #instrArrow { font-size:15px; transition:transform .2s; }
   #instrToggle[aria-expanded="true"] #instrArrow { transform:rotate(180deg); }
-  #instrBody { margin-top:10px; background:#f3f3f3; border-radius:12px; padding:14px 16px; box-shadow:inset 0 0 0 1px #e1e1e1; }
+  /* the text opens BELOW the bar */
+  #instrBody { margin-top:8px; background:#f6f6f6; border-radius:12px; padding:14px 16px; box-shadow:inset 0 0 0 1px #d4d4d4; }
+  #instrBody[hidden] { display:none; }
   #instrBody .instr { margin:0; }
 
   .wnode { position:absolute; z-index:1; display:flex; align-items:center; gap:8px; cursor:grab; touch-action:none; font-size:13px; }
@@ -141,7 +142,7 @@
     </div>
 
     <div id="instrBox">
-      <button type="button" id="instrToggle" aria-expanded="false"><span id="instrLabel">Click to Read Instructions</span><span id="instrArrow">&#9662;</span></button>
+      <button type="button" id="instrToggle" aria-expanded="false"><span id="instrLabel">Click to Read Instructions</span><span id="instrArrow">&#8595;</span></button>
       <div id="instrBody" hidden>
         <p class="instr">Drag a line from a natural data element to a musical element to map them together. Click the ring below the connected element to open the slider. The slider controls how strongly that data element affects the musical element. 0% has no effect, 100% is a normal effect, and over 100% is an exaggerated effect. Click the green check to save the slider and close it out, and click the red ‘x’ to disconnect completely. You can map multiple natural data elements to a musical element and individual natural data elements to multiple musical elements.</p>
       </div>
